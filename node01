@@ -1,0 +1,102 @@
+// employee-system.js
+
+const readline = require("readline");
+
+// CLI setup
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+// Employee array
+let employees = [];
+
+// Menu
+function showMenu() {
+  console.log("\n=== Employee Management System ===");
+  console.log("1. Add Employee");
+  console.log("2. View Employees");
+  console.log("3. Search Employee by ID");
+  console.log("4. Delete Employee");
+  console.log("5. Exit");
+
+  rl.question("Choose an option: ", (choice) => {
+    switch (choice) {
+      case "1":
+        addEmployee();
+        break;
+      case "2":
+        viewEmployees();
+        break;
+      case "3":
+        searchEmployee();
+        break;
+      case "4":
+        deleteEmployee();
+        break;
+      case "5":
+        console.log("Exiting...");
+        rl.close();
+        break;
+      default:
+        console.log("Invalid choice!");
+        showMenu();
+    }
+  });
+}
+
+// Add employee
+function addEmployee() {
+  rl.question("Enter Employee ID: ", (id) => {
+    rl.question("Enter Employee Name: ", (name) => {
+      rl.question("Enter Employee Age: ", (age) => {
+        employees.push({ id, name, age });
+        console.log("✅ Employee added successfully!");
+        showMenu();
+      });
+    });
+  });
+}
+
+// View employees
+function viewEmployees() {
+  if (employees.length === 0) {
+    console.log("No employees found!");
+  } else {
+    console.log("\nEmployee List:");
+    employees.forEach((emp, index) => {
+      console.log(`${index + 1}. ID: ${emp.id}, Name: ${emp.name}, Age: ${emp.age}`);
+    });
+  }
+  showMenu();
+}
+
+// Search employee
+function searchEmployee() {
+  rl.question("Enter Employee ID to search: ", (id) => {
+    const emp = employees.find((e) => e.id === id);
+    if (emp) {
+      console.log(`Found: ID: ${emp.id}, Name: ${emp.name}, Age: ${emp.age}`);
+    } else {
+      console.log("❌ Employee not found!");
+    }
+    showMenu();
+  });
+}
+
+// Delete employee
+function deleteEmployee() {
+  rl.question("Enter Employee ID to delete: ", (id) => {
+    const index = employees.findIndex((e) => e.id === id);
+    if (index !== -1) {
+      employees.splice(index, 1);
+      console.log("✅ Employee deleted!");
+    } else {
+      console.log("❌ Employee not found!");
+    }
+    showMenu();
+  });
+}
+
+// Start program
+showMenu();
