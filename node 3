@@ -1,0 +1,237 @@
+// server.js
+const express = require("express");
+const { v4: uuidv4 } = require("uuid");
+
+const app = express();
+app.use(express.json());
+
+// Configuration
+const PORT = process.env.PORT || 3000;
+const LOCK_TTL_MS = 30 * 1000; // 30 seconds lock TTL (adjust as needed)
+
+// In-memory storage (single-process)
+// shows: showId -> { seats: Map(seatId -> { id, state, lockId?, bookedBy? }) }
+// locks: lockId -> { id, showId, seatIds:[], userId, expiresAt, timer }
+const shows = new Map();
+const locks = new Map();
+
+/* ---------- Helpers ---------- */
+
+function createShowIfMissing(showId, rows = 5, cols = 8) {
+  if (shows.has(showId)) return;
+  const seats = new Map();
+  for (let r = 1; r <= rows; r++) {
+    for (let c = 1; c <= cols; c++) {
+      const seatId = `${String.fromCharCode(64 + r)}${c}`; // A1, A2, B1...
+      seats.set(seatId, { id: seatId, state: "available", lockId: null, bookedBy: null });
+    }
+  }
+  shows.set(showId, { id: showId, seats });
+}
+
+function now() {
+  return Date.now();
+}
+
+// Attempt to atomically acquire lock on seatIds for a user.
+// Returns { success: true, lockId, expiresAt } or { success: false, conflict: [seatIds] }
+function acquireLock(showId, seatIds, userId) {
+  createShowIfMissing(showId);
+  const show = shows.get(showId);
+  const conflict = [];
+
+  // Check availability
+  for (const sid of seatIds) {
+    const seat = show.seats.get(sid);
+    if (!seat) {
+      conflict.push({ seat: sid, reason: "invalid" });
+      continue;
+    }
+    if (seat.state === "booked") {
+      conflict.push({ seat: sid, reason: "booked" });
+    } else if (seat.state === "locked") {
+      // check if lock expired (shouldn't happen if expiration logic correct, but double-check)
+      const lock = locks.get(seat.lockId);
+      if (!lock || lock.expiresAt <= now()) {
+        // treat as available (cleanup will happen below)
+      } else {
+        conflict.push({ seat: sid, reason: "locked" });
+      }
+    }
+  }
+
+  if (conflict.length > 0) return { success: false, conflict };
+
+  // All seats appear free -> create lock
+  const lockId = uuidv4();
+  const expiresAt = now() + LOCK_TTL_MS;
+
+  // Timer to auto-release
+  const timer = setTimeout(() => {
+    // expire lock
+    const l = locks.get(lockId);
+    if (!l) return;
+    // release seats
+    const s = shows.get(showId);
+    for (const sid of l.seatIds) {
+      const seat = s.seats.get(sid);
+      if (seat && seat.lockId === lockId && seat.state === "locked") {
+        seat.state = "available";
+        seat.lockId = null;
+      }
+    }
+    locks.delete(lockId);
+    // optional: log
+    console.log(`Lock ${lockId} expired and released for show ${showId}`);
+  }, LOCK_TTL_MS);
+
+  const lock = { id: lockId, showId, seatIds: seatIds.slice(), userId, expiresAt, timer };
+  locks.set(lockId, lock);
+
+  // mark seats locked
+  for (const sid of seatIds) {
+    const seat = show.seats.get(sid);
+    seat.state = "locked";
+    seat.lockId = lockId;
+  }
+
+  return { success: true, lockId, expiresAt };
+}
+
+// Confirm a lock -> book seats
+function confirmLock(lockId) {
+  const lock = locks.get(lockId);
+  if (!lock) return { success: false, reason: "invalid_lock" };
+  if (lock.expiresAt <= now()) {
+    // expired
+    // cleanup
+    clearTimeout(lock.timer);
+    locks.delete(lockId);
+    // release seats
+    const s = shows.get(lock.showId);
+    for (const sid of lock.seatIds) {
+      const seat = s.seats.get(sid);
+      if (seat && seat.lockId === lockId && seat.state === "locked") {
+        seat.state = "available";
+        seat.lockId = null;
+      }
+    }
+    return { success: false, reason: "lock_expired" };
+  }
+
+  // book seats
+  const show = shows.get(lock.showId);
+  for (const sid of lock.seatIds) {
+    const seat = show.seats.get(sid);
+    if (!seat || seat.lockId !== lockId || seat.state !== "locked") {
+      // inconsistent -> fail
+      return { success: false, reason: "inconsistent_state" };
+    }
+  }
+
+  for (const sid of lock.seatIds) {
+    const seat = show.seats.get(sid);
+    seat.state = "booked";
+    seat.bookedBy = lock.userId;
+    seat.lockId = null;
+  }
+
+  clearTimeout(lock.timer);
+  locks.delete(lockId);
+  return { success: true, bookedSeats: lock.seatIds.slice() };
+}
+
+// Release a lock before expiry (manual cancel)
+function releaseLock(lockId) {
+  const lock = locks.get(lockId);
+  if (!lock) return { success: false, reason: "invalid_lock" };
+  clearTimeout(lock.timer);
+  locks.delete(lockId);
+  const show = shows.get(lock.showId);
+  for (const sid of lock.seatIds) {
+    const seat = show.seats.get(sid);
+    if (seat && seat.lockId === lockId && seat.state === "locked") {
+      seat.state = "available";
+      seat.lockId = null;
+    }
+  }
+  return { success: true };
+}
+
+/* ---------- Routes ---------- */
+
+// Health
+app.get("/", (req, res) => res.json({ ok: true }));
+
+// Get seat map for a show
+app.get("/shows/:showId/seats", (req, res) => {
+  const showId = req.params.showId;
+  createShowIfMissing(showId);
+  const show = shows.get(showId);
+  // return array for easier client use
+  const seats = Array.from(show.seats.values()).map((s) => ({
+    id: s.id,
+    state: s.state,
+    bookedBy: s.bookedBy,
+    lockId: s.lockId,
+  }));
+  res.json({ showId, seats });
+});
+
+// Lock seats
+// body: { seatIds: ["A1","A2"], userId: "user123" }
+app.post("/shows/:showId/lock", (req, res) => {
+  const showId = req.params.showId;
+  const { seatIds, userId } = req.body;
+  if (!Array.isArray(seatIds) || seatIds.length === 0 || !userId) {
+    return res.status(400).json({ message: "seatIds (non-empty array) and userId required" });
+  }
+  const result = acquireLock(showId, seatIds, userId);
+  if (!result.success) {
+    return res.status(409).json({ message: "Could not lock requested seats", conflict: result.conflict });
+  }
+  res.json({ lockId: result.lockId, expiresAt: result.expiresAt, ttlMs: LOCK_TTL_MS });
+});
+
+// Confirm (book) locked seats
+// body: { lockId: "..." }
+app.post("/shows/:showId/confirm", (req, res) => {
+  const { lockId } = req.body;
+  if (!lockId) return res.status(400).json({ message: "lockId required" });
+  const result = confirmLock(lockId);
+  if (!result.success) {
+    if (result.reason === "lock_expired") return res.status(410).json({ message: "Lock expired" });
+    if (result.reason === "invalid_lock") return res.status(404).json({ message: "Invalid lock" });
+    return res.status(409).json({ message: "Could not confirm booking", reason: result.reason });
+  }
+  res.json({ message: "Seats booked", seats: result.bookedSeats });
+});
+
+// Release lock (cancel)
+// body: { lockId: "..." }
+app.post("/locks/release", (req, res) => {
+  const { lockId } = req.body;
+  if (!lockId) return res.status(400).json({ message: "lockId required" });
+  const r = releaseLock(lockId);
+  if (!r.success) return res.status(404).json({ message: "Invalid lock" });
+  res.json({ message: "Lock released" });
+});
+
+// For debugging - list all locks (not for production)
+app.get("/debug/locks", (req, res) => {
+  const list = Array.from(locks.values()).map((l) => ({
+    id: l.id,
+    showId: l.showId,
+    seatIds: l.seatIds,
+    userId: l.userId,
+    expiresAt: l.expiresAt,
+  }));
+  res.json(list);
+});
+
+/* ---------- Start ---------- */
+app.listen(PORT, () => {
+  console.log(`Ticket booking server running on http://localhost:${PORT}`);
+  // Create a demo show
+  createShowIfMissing("show1", 6, 8);
+});
