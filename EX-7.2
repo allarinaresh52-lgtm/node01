@@ -1,0 +1,165 @@
+import java.sql.*;
+import java.util.Scanner;
+
+public class ProductCRUD {
+
+    // Database credentials
+    private static final String URL = "jdbc:mysql://localhost:3306/shop";
+    private static final String USER = "root";      // change to your DB username
+    private static final String PASSWORD = "password"; // change to your DB password
+
+    private Connection conn;
+
+    public ProductCRUD() {
+        try {
+            conn = DriverManager.getConnection(URL, USER, PASSWORD);
+            conn.setAutoCommit(false); // Enable transaction management
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Create / Insert product
+    public void addProduct(String name, double price, int quantity) {
+        String sql = "INSERT INTO product (name, price, quantity) VALUES (?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, name);
+            ps.setDouble(2, price);
+            ps.setInt(3, quantity);
+            ps.executeUpdate();
+            conn.commit();
+            System.out.println("Product added successfully.");
+        } catch (SQLException e) {
+            try { conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
+            e.printStackTrace();
+        }
+    }
+
+    // Read / Display all products
+    public void listProducts() {
+        String sql = "SELECT * FROM product";
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            System.out.println("ID\tName\tPrice\tQuantity");
+            System.out.println("---------------------------------");
+            while (rs.next()) {
+                System.out.println(rs.getInt("id") + "\t" +
+                                   rs.getString("name") + "\t" +
+                                   rs.getDouble("price") + "\t" +
+                                   rs.getInt("quantity"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Update product
+    public void updateProduct(int id, String name, double price, int quantity) {
+        String sql = "UPDATE product SET name=?, price=?, quantity=? WHERE id=?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, name);
+            ps.setDouble(2, price);
+            ps.setInt(3, quantity);
+            ps.setInt(4, id);
+            int rows = ps.executeUpdate();
+            if (rows > 0) {
+                conn.commit();
+                System.out.println("Product updated successfully.");
+            } else {
+                System.out.println("Product not found.");
+            }
+        } catch (SQLException e) {
+            try { conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
+            e.printStackTrace();
+        }
+    }
+
+    // Delete product
+    public void deleteProduct(int id) {
+        String sql = "DELETE FROM product WHERE id=?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            int rows = ps.executeUpdate();
+            if (rows > 0) {
+                conn.commit();
+                System.out.println("Product deleted successfully.");
+            } else {
+                System.out.println("Product not found.");
+            }
+        } catch (SQLException e) {
+            try { conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
+            e.printStackTrace();
+        }
+    }
+
+    // Close connection
+    public void close() {
+        try {
+            if (conn != null) conn.close();
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    // =================== Main Menu ===================
+    public static void main(String[] args) {
+        ProductCRUD crud = new ProductCRUD();
+        Scanner sc = new Scanner(System.in);
+        int choice;
+
+        do {
+            System.out.println("\n=== Product CRUD Menu ===");
+            System.out.println("1. Add Product");
+            System.out.println("2. List Products");
+            System.out.println("3. Update Product");
+            System.out.println("4. Delete Product");
+            System.out.println("5. Exit");
+            System.out.print("Enter your choice: ");
+            choice = sc.nextInt();
+            sc.nextLine(); // consume newline
+
+            switch (choice) {
+                case 1:
+                    System.out.print("Enter product name: ");
+                    String name = sc.nextLine();
+                    System.out.print("Enter price: ");
+                    double price = sc.nextDouble();
+                    System.out.print("Enter quantity: ");
+                    int qty = sc.nextInt();
+                    crud.addProduct(name, price, qty);
+                    break;
+
+                case 2:
+                    crud.listProducts();
+                    break;
+
+                case 3:
+                    System.out.print("Enter product ID to update: ");
+                    int upId = sc.nextInt();
+                    sc.nextLine();
+                    System.out.print("Enter new name: ");
+                    String upName = sc.nextLine();
+                    System.out.print("Enter new price: ");
+                    double upPrice = sc.nextDouble();
+                    System.out.print("Enter new quantity: ");
+                    int upQty = sc.nextInt();
+                    crud.updateProduct(upId, upName, upPrice, upQty);
+                    break;
+
+                case 4:
+                    System.out.print("Enter product ID to delete: ");
+                    int delId = sc.nextInt();
+                    crud.deleteProduct(delId);
+                    break;
+
+                case 5:
+                    System.out.println("Exiting...");
+                    break;
+
+                default:
+                    System.out.println("Invalid choice! Try again.");
+            }
+        } while (choice != 5);
+
+        crud.close();
+        sc.close();
+    }
+}
