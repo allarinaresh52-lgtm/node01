@@ -1,0 +1,129 @@
+import java.sql.*;
+import java.util.*;
+
+// ==================== Model ====================
+class Student {
+    private int id;
+    private String name;
+    private int age;
+
+    public Student() {}
+    public Student(int id, String name, int age) {
+        this.id = id; this.name = name; this.age = age;
+    }
+
+    public int getId() { return id; }
+    public void setId(int id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public int getAge() { return age; }
+    public void setAge(int age) { this.age = age; }
+
+    @Override
+    public String toString() {
+        return "Student [id=" + id + ", name=" + name + ", age=" + age + "]";
+    }
+}
+
+// ==================== DAO ====================
+class StudentDAO {
+    private final String URL = "jdbc:mysql://localhost:3306/school";
+    private final String USER = "root";       // change to your DB username
+    private final String PASSWORD = "password"; // change to your DB password
+
+    private Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(URL, USER, PASSWORD);
+    }
+
+    public List<Student> getAllStudents() {
+        List<Student> students = new ArrayList<>();
+        String sql = "SELECT * FROM students";
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                students.add(new Student(rs.getInt("id"), rs.getString("name"), rs.getInt("age")));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return students;
+    }
+
+    public void addStudent(Student student) {
+        String sql = "INSERT INTO students (name, age) VALUES (?, ?)";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, student.getName());
+            ps.setInt(2, student.getAge());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void updateStudent(Student student) {
+        String sql = "UPDATE students SET name=?, age=? WHERE id=?";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, student.getName());
+            ps.setInt(2, student.getAge());
+            ps.setInt(3, student.getId());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void deleteStudent(int id) {
+        String sql = "DELETE FROM students WHERE id=?";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+// ==================== Controller ====================
+class StudentController {
+    private StudentDAO dao = new StudentDAO();
+
+    public void listStudents() {
+        List<Student> students = dao.getAllStudents();
+        students.forEach(System.out::println);
+    }
+
+    public void addStudent(String name, int age) {
+        dao.addStudent(new Student(0, name, age));
+    }
+
+    public void updateStudent(int id, String name, int age) {
+        dao.updateStudent(new Student(id, name, age));
+    }
+
+    public void deleteStudent(int id) {
+        dao.deleteStudent(id);
+    }
+}
+
+// ==================== View / Main ====================
+public class FullJDBCMVC {
+    public static void main(String[] args) {
+        StudentController controller = new StudentController();
+
+        // Add a new student
+        controller.addStudent("David", 23);
+
+        // Update student with id 2
+        controller.updateStudent(2, "Bob Updated", 24);
+
+        // Delete student with id 3
+        controller.deleteStudent(3);
+
+        // List all students
+        controller.listStudents();
+    }
+}
