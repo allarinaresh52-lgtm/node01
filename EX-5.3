@@ -1,0 +1,108 @@
+// ==========================================
+// E-commerce Catalog with Nested Document Structure in MongoDB
+// ==========================================
+
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+// ---------- Connect to MongoDB ----------
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ecommerceCatalog", {
+      useNewUrlParser: true,
+      useUnifiedTopology: true
+    });
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error("❌ Connection Error:", error);
+    process.exit(1);
+  }
+};
+
+// ---------- Define Product Schema ----------
+const variantSchema = new mongoose.Schema({
+  color: String,
+  size: String,
+  stock: Number
+});
+
+const productSchema = new mongoose.Schema({
+  name: String,
+  price: Number,
+  category: String,
+  variants: [variantSchema]
+});
+
+const Product = mongoose.model("Product", productSchema);
+
+// ---------- Insert Sample Products ----------
+const insertSampleData = async () => {
+  await Product.deleteMany({}); // clear previous data
+
+  await Product.insertMany([
+    {
+      name: "T-Shirt",
+      price: 499,
+      category: "Clothing",
+      variants: [
+        { color: "Red", size: "M", stock: 50 },
+        { color: "Blue", size: "L", stock: 30 }
+      ]
+    },
+    {
+      name: "Sneakers",
+      price: 2499,
+      category: "Footwear",
+      variants: [
+        { color: "Black", size: "8", stock: 15 },
+        { color: "White", size: "9", stock: 20 }
+      ]
+    },
+    {
+      name: "Laptop Bag",
+      price: 1299,
+      category: "Accessories",
+      variants: [
+        { color: "Gray", size: "Standard", stock: 25 },
+        { color: "Blue", size: "Standard", stock: 10 }
+      ]
+    }
+  ]);
+
+  console.log("✅ Sample products inserted successfully!");
+};
+
+// ---------- Queries ----------
+
+// 1️⃣ Retrieve all products
+const getAllProducts = async () => {
+  const products = await Product.find();
+  console.log("\n🛍️ All Products:\n", products);
+};
+
+// 2️⃣ Filter products by category
+const getProductsByCategory = async (category) => {
+  const products = await Product.find({ category });
+  console.log(`\n📂 Products in category: ${category}\n`, products);
+};
+
+// 3️⃣ Project specific variant details (color and stock only)
+const getVariantDetails = async () => {
+  const variants = await Product.find({}, { name: 1, "variants.color": 1, "variants.stock": 1, _id: 0 });
+  console.log("\n🎨 Variant color & stock projection:\n", variants);
+};
+
+// ---------- Main Function ----------
+const run = async () => {
+  await connectDB();
+  await insertSampleData();
+  await getAllProducts();
+  await getProductsByCategory("Clothing");
+  await getVariantDetails();
+
+  mongoose.connection.close();
+};
+
+run();
